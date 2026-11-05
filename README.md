@@ -22,9 +22,12 @@ red-vs-blue-starter/
   README.md
   requirements.txt
   .env.example
+  .github/workflows/
+    security-scan.yml # scans pull requests and comments with findings
   target_app/
-    app.py            # the vulnerable practice app (the "blue" target)
+    app.py            # intentionally-vulnerable sample app for the scanner
   agent/
+    ci_scan.py        # complete, read-only CI scanner (no TODOs to fill in)
     llm.py            # talks to the AI model            (done for you)
     tools.py          # list_files / read_file / send_request (done for you)
     attack_agent.py   # the agent loop (the "red" attacker) -- YOU complete this
@@ -32,10 +35,48 @@ red-vs-blue-starter/
 
 - **`target_app/app.py`** — a tiny Flask + SQLite app with a login route and a
   product search route. Both build their database queries by gluing your input
-  straight into SQL, which is exactly how SQL injection happens.
+  straight into SQL, which is exactly how SQL injection happens. This is an
+  intentionally-vulnerable sample app that the scanner is demonstrated against,
+  not production code to deploy.
 - **`agent/`** — the AI attacker. `llm.py` and `tools.py` are finished.
   `attack_agent.py` is a working loop with the core logic left as `TODO`s for
   you to fill in.
+
+---
+
+## Automated pull request security scan
+
+`.github/workflows/security-scan.yml` runs on every `pull_request` event. It
+checks out the code, sets up Python 3.12, installs `requirements.txt`, and runs
+`python agent/ci_scan.py > findings.md`. The scanner reads Python files
+recursively under `target_app/` and asks the model to trace user input into
+SQL queries. It does not start or attack the sample app.
+
+**Required setup:** add your API key as a repository Actions secret named
+`LLM_API_KEY` under **Settings → Secrets and variables → Actions**. The workflow
+uses `https://generativelanguage.googleapis.com/v1beta/openai/` as `LLM_BASE_URL`
+and `gemini-3.5-flash-lite` as `LLM_MODEL`. Source code under `target_app/` is
+sent to this provider; do not put secrets in the sample source.
+
+`actions/github-script@v7` posts the markdown report as a new PR comment:
+a heading followed by `file:line — description` findings, or
+`No vulnerabilities found.` The comment step runs even if the scan fails
+(including missing keys, API errors, rate limits, or invalid model responses)
+and posts a short "Scan couldn't complete" notice instead. Scan errors leave
+the workflow failed rather than silently treating an incomplete scan as clean.
+Findings themselves are advisory and do not fail the workflow.
+
+`agent/ci_scan.py` contains its own complete detection prompt and does not use
+the unfinished exercises in `attack_agent.py`. For local use, install the
+requirements, export `LLM_API_KEY` (optionally `LLM_BASE_URL` and `LLM_MODEL`),
+and run `python agent/ci_scan.py`. Unlike the exercise agents, this CI script
+reads environment variables directly and does not load `.env`.
+
+GitHub normally withholds repository secrets and provides a read-only token
+for fork PRs and Dependabot PRs. Those runs cannot perform the authenticated
+scan or post a comment without appropriate GitHub permissions. Do not switch
+to `pull_request_target` to run untrusted PR code with secrets. Only run
+secret-enabled scans on PR code you trust. AI findings still need human review.
 
 ---
 

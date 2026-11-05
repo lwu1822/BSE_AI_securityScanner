@@ -1,0 +1,57 @@
+name: AI Security Scan
+
+on:
+  pull_request:
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Scan Python source
+        id: scan
+        run: python agent/ci_scan.py > findings.md
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_BASE_URL: https://generativelanguage.googleapis.com/v1beta/openai/
+          LLM_MODEL: gemini-3.5-flash-lite
+
+      - name: Comment on pull request
+        if: ${{ always() }}
+        uses: actions/github-script@v7
+        env:
+          SCAN_OUTCOME: ${{ steps.scan.outcome }}
+        with:
+          script: |
+            const fs = require('fs');
+            const fallback = "## AI Security Scan\n\nScan couldn't complete. Check the workflow logs, API key, model availability, and rate limits, then try again.";
+            let body = fallback;
+            if (process.env.SCAN_OUTCOME === 'success') {
+              try {
+                const report = fs.readFileSync('findings.md', 'utf8').trim();
+                if (report) body = report;
+              } catch {
+                core.warning('Could not read findings.md; posting failure notice.');
+              }
+            }
+            await github.rest.issues.createComment({
+              ...context.repo,
+              issue_number: context.issue.number,
+              body,
+            });
